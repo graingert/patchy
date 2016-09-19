@@ -2,7 +2,7 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 import inspect
-import os
+import io
 import shutil
 import subprocess
 from functools import wraps
@@ -11,6 +11,7 @@ from textwrap import dedent
 from weakref import WeakKeyDictionary
 
 import six
+import patch as ptch
 
 from .cache import PatchingCache
 
@@ -60,62 +61,70 @@ def _do_patch(func, patch_text, forwards):
     _set_source(func, new_source)
 
 
+def force_bytes(s):
+    if isinstance(s, bytes):
+        return s
+    else:
+        return s.encode('utf-8')
+
+
+def _error(forwards, name, extra):
+    msg = "Could not {action} the patch {prep} '{name}'.".format(
+        action="apply" if forwards else "unapply",
+        prep="to" if forwards else "from",
+        name=name,
+    )
+
+    if msg:
+        msg += ' The message from `patch` was: \n' + extra
+
+    raise ValueError(msg)
+
+
+def _parse_diff(patch_text):
+    ptch.debug = print
+    ptch.info = print
+    ptch.warning = print
+
+    ps = ptch.PatchSet()
+    ps.parse(io.BytesIO(patch_text))
+
+    if len(ps.items) == 1:
+        return ps
+
+    return False
+
+
+
 _patching_cache = PatchingCache(maxsize=100)
 
 
 def _apply_patch(source, patch_text, forwards, name):
     # Cached ?
+    source = force_bytes(source)
+    patch_text = force_bytes(patch_text)
+
     try:
         return _patching_cache.retrieve(source, patch_text, forwards)
     except KeyError:
         pass
 
-    # Write out files
-    tempdir = mkdtemp(prefix='patchy')
-    try:
-        source_path = os.path.join(tempdir, name + '.py')
-        with open(source_path, 'w') as source_file:
-            source_file.write(source)
+    fake_header = b'--- \n+++ \n'
 
-        patch_path = os.path.join(tempdir, name + '.patch')
-        with open(patch_path, 'w') as patch_file:
-            patch_file.write(patch_text)
-            if not patch_text.endswith('\n'):
-                patch_file.write('\n')
+    ps = _parse_diff(patch_text)
+    if not ps:
+        ps = _parse_diff(fake_header + patch_text)
+        if not ps:
+            raise _error(name=name, forwards=forwards, extra='Cannot parse diff')
 
-        # Call `patch` command
-        command = ['patch']
-        if not forwards:
-            command.append('--reverse')
-        command.extend([source_path, patch_path])
-        proc = subprocess.Popen(
-            command,
-            stderr=subprocess.PIPE,
-            stdout=subprocess.PIPE
-        )
-        stdout, stderr = proc.communicate()
+    if not forwards:
+        ps._reverse()
 
-        if proc.returncode != 0:
-            msg = "Could not {action} the patch {prep} '{name}'.".format(
-                action=("apply" if forwards else "unapply"),
-                prep=("to" if forwards else "from"),
-                name=name
-            )
-            if stdout or stderr:
-                msg += " The message from `patch` was:\n{}\n{}".format(
-                    stdout.decode('utf-8'),
-                    stderr.decode('utf-8')
-                )
-            msg += (
-                "\nThe code to patch was:\n{}\nThe patch was:\n{}"
-                .format(source, patch_text)
-            )
-            raise ValueError(msg)
+    new_source = b''.join(ps.patch_stream(io.BytesIO(source), ps.items[0]))
 
-        with open(source_path, 'r') as source_file:
-            new_source = source_file.read()
-    finally:
-        shutil.rmtree(tempdir)
+
+    if type('') is str:
+        new_source = new_source.decode('utf8')
 
     _patching_cache.store(source, patch_text, forwards, new_source)
 
