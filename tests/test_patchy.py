@@ -29,6 +29,8 @@ class PatchTests(PatchyTestCase):
         assert sample() == 9001
 
     def test_mc_patchface(self):
+        import pdb;
+        pdb.t = True
         def sample():
             return 1
 
