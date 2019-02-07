@@ -1,6 +1,7 @@
 # -*- encoding:utf-8 -*-
 from __future__ import absolute_import, division, print_function, unicode_literals
 
+import contextlib
 import sys
 from textwrap import dedent
 
@@ -11,6 +12,15 @@ import patchy
 import patchy.api
 
 from .conftest import skip_unless_python_2, skip_unless_python_3
+
+
+@contextlib.contextmanager
+def sys_path_insert(dirname):
+    sys.path.insert(0, six.text_type(dirname))
+    try:
+        yield
+    finally:
+        sys.path.pop(0)
 
 
 def test_patch():
@@ -460,12 +470,8 @@ def test_patch_instancemethod_mangled_tabs(tmpdir):
         \t\tfilling = 'Chalk'
         \t\treturn self.__mangled_name(filling)
     """))
-    sys.path.insert(0, six.text_type(tmpdir))
-
-    try:
+    with sys_path_insert(tmpdir):
         from tabs_mangled import Artist
-    finally:
-        sys.path.pop(0)
 
     patchy.patch(Artist.method, """\
         @@ -1,2 +1,2 @@
@@ -605,12 +611,8 @@ def test_patch_future(tmpdir):
         def sample():
             return type('example string')
     """))
-    sys.path.insert(0, six.text_type(tmpdir))
-
-    try:
+    with sys_path_insert(tmpdir):
         from future_user import sample
-    finally:
-        sys.path.pop(0)
 
     assert sample() is six.text_type
 
@@ -632,12 +634,8 @@ def test_patch_future_twice(tmpdir):
         def sample():
             return type('example string')
     """))
-    sys.path.insert(0, six.text_type(tmpdir))
-
-    try:
+    with sys_path_insert(tmpdir):
         from future_twice import sample
-    finally:
-        sys.path.pop(0)
 
     assert sample() is six.text_type
 
@@ -669,12 +667,8 @@ def test_patch_future_doesnt_inherit(tmpdir):
         def sample():
             return 1 / 2
     """))
-    sys.path.insert(0, six.text_type(tmpdir))
-
-    try:
+    with sys_path_insert(tmpdir):
         from no_future_division import sample
-    finally:
-        sys.path.pop(0)
 
     assert sample() == 0
 
@@ -697,12 +691,8 @@ def test_patch_future_instancemethod(tmpdir):
             def meth(self):
                 return type('example string')
     """))
-    sys.path.insert(0, six.text_type(tmpdir))
-
-    try:
+    with sys_path_insert(tmpdir):
         from future_instancemethod import Sample
-    finally:
-        sys.path.pop(0)
 
     assert Sample().meth() is six.text_type
 
@@ -735,11 +725,8 @@ def test_patch_nonlocal_fails(tmpdir):
 
         sample = get_function()
     """))
-    sys.path.insert(0, six.text_type(tmpdir))
-    try:
+    with sys_path_insert(tmpdir):
         from py3_nonlocal import sample
-    finally:
-        sys.path.pop(0)
 
     assert sample() == 15 * 3
 
@@ -759,15 +746,12 @@ def test_patch_by_path(tmpdir):
             def sample(self):
                 return 1
         """))
-    sys.path.insert(0, six.text_type(tmpdir))
-    try:
+    with sys_path_insert(tmpdir):
         patchy.patch('patch_by_path.Foo.sample', """\
             @@ -2,2 +2,2 @@
             -    return 1
             +    return 2
             """)
         from patch_by_path import Foo
-    finally:
-        sys.path.pop(0)
 
     assert Foo().sample() == 2
