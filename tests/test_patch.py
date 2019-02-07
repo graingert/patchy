@@ -751,3 +751,23 @@ def test_patch_nonlocal_fails(tmpdir):
         """)
 
     assert sample() == 15 * 4
+
+
+def test_patch_by_path(tmpdir):
+    tmpdir.join('patch_by_path.py').write(dedent("""\
+        class Foo(object):
+            def sample(self):
+                return 1
+        """))
+    sys.path.insert(0, six.text_type(tmpdir))
+    try:
+        patchy.patch('patch_by_path.Foo.sample', """\
+            @@ -2,2 +2,2 @@
+            -    return 1
+            +    return 2
+            """)
+        from patch_by_path import Foo
+    finally:
+        sys.path.pop(0)
+
+    assert Foo().sample() == 2
